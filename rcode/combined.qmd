@@ -3,13 +3,113 @@ title: "Untitled"
 format: html
 ---
 
+# Preamble
+
 ```{r}
-envelopes_b <- rbind(envelopes1[,colnames(envelopes1) %in% colnames(envelopes2)], envelopes2)
-envelopes_b$dataset <- c(rep("a", nrow(envelopes1)), rep("b", nrow(envelopes2)))
-envelopes_b$Participant <- paste0(envelopes_b$Participant, envelopes_b$dataset)
+# Libraries
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(tidyr)
+library(brms)
+library(patchwork)
+library(ggpubr)
 ```
 
 ```{r}
+# Relative working directory
+active_wd <- function(x, output = FALSE) {
+    rdir <- dirname(rstudioapi::getActiveDocumentContext()$path)
+    rdir <- sub("[^/]*$", "", rdir)
+    rdir <- paste0(rdir, x)
+    setwd(rdir)
+    if (output == TRUE) {
+        return(getwd())
+    }
+}
+active_wd("data")
+# Load in data
+datac <- read_csv("combined_data.csv")
+datac <- datac[datac$type == "Heterogenous",]
+reversals <- 4
+```
+
+# Data prep
+
+```{r}
+# Data prep for analysis
+
+# Select final 4 reversals in each staircase for each Participant
+last_revs <- data.frame()
+for (i in unique(datac$Participant)) {
+    for (j in unique(datac$start_id)) {
+        for (k in unique(datac$type)) {
+            for (l in unique(datac$envelope_1)) {
+                for (m in unique(datac$repetition)) {
+                    for (n in unique(datac$direction)) {
+                        rev <- subset(datac, Participant == i & type == k & envelope_1 == l & repetition == m & direction == n & l_reversal == 1)
+                        if (!j %in% rev$start_id) next
+                        rev <- subset(rev, start_id == j)
+                        num <- length(rev$l_reversal) - reversals
+                        rev <- rev[-c(1:num), ]
+                        last_revs <- rbind(last_revs, rev)
+                    }
+                }
+            }
+        }
+    }
+}
+
+# Categorise each reversal
+k <- 1
+for (i in 1:nrow(last_revs)) {
+    if (k > reversals) k <- 1
+    last_revs$trial_num[i] <- k
+    k <- k + 1
+}
+
+# Group and condense response/reversal data
+revs <- last_revs %>%
+    group_by(Participant, start_id, direction, envelope_1, type, repetition, trial_num) %>%
+    summarise("Level" = mean(second - first)) %>%
+    mutate("trial_num" = as.integer(trial_num), "start_id" = factor(start_id)) %>%
+    arrange(Participant, start_id, direction, envelope_1, type, repetition, trial_num)
+
+# Calculate PSE for each standard and envelope for each participant (and Z scores)
+pse <- revs %>%
+    group_by(Participant, start_id, envelope_1, type, repetition) %>%
+    summarise("PSE" = mean(Level))
+
+pse$PSEtotal <- 0
+pse$standard <- 0
+for (i in 1:length(unique(pse$envelope_1))) {
+    for (j in 1:length(unique(pse$start_id))) {
+        e <- unique(pse$envelope_1)[i]
+        if (!j %in% unique(pse$start_id[pse$envelope_1 == e])) next
+        pse$PSEtotal[pse$envelope_1 == unique(pse$envelope_1)[i] & pse$start_id == j] <- datac$first[datac$envelope_1 == unique(pse$envelope_1)[i] & datac$start_id == j] + pse$PSE[pse$envelope_1 == unique(pse$envelope_1)[i] & pse$start_id == j]
+        pse$standard[pse$envelope_1 == unique(pse$envelope_1)[i] & pse$start_id == j] <- datac$first[datac$envelope_1 == unique(pse$envelope_1)[i] & datac$start_id == j]
+    }
+}
+
+envelopes_b <- data.frame("Participant" = pse$Participant, "start_id" = pse$start_id, "envelope_1" = pse$envelope_1, "type" = pse$type, "repetition" = pse$repetition, "Flat" = 0, "Percussive" = 0)
+
+for (i in 1:length(pse$Participant)) {
+    envelopes_b$Flat[i] <- ifelse(pse$envelope_1[i] == "flat", pse$standard[i], pse$PSEtotal[i])
+}
+for (i in 1:length(pse$Participant)) {
+    envelopes_b$Percussive[i] <- ifelse(pse$envelope_1[i] == "perc", pse$standard[i], pse$PSEtotal[i])
+}
+envelopes_b$delta <- envelopes_b$Percussive - envelopes_b$Flat
+envelopes_b$Participant <- factor(envelopes_b$Participant)
+envelopes_b$start_id <- factor(envelopes_b$start_id)
+envelopes_b$envelope_1 <- factor(envelopes_b$envelope_1)
+```
+
+# Model selection
+
+```{r}
+# Random effects
+
 priors <- c(
     prior(cauchy(0,2), class = "b", coef = "Intercept"),
     prior(cauchy(1,1), class = "b", coef = "Flat"),
@@ -45,8 +145,8 @@ model2 <- brm( # THE BEST
     cores = 10,
     save_pars = save_pars(all = TRUE)
 )
-bf31 <- log(bayes_factor(model2, model)$bf, 10) # 1060.13 in favour of 2
-# model <- model2
+bf31 <- log(bayes_factor(model2, model)$bf, 10)
+model3 <- model2
 
 model2 <- brm(
     Percussive ~ 0 + Intercept + Flat * envelope_1 + (0 + Flat|Participant),
@@ -62,7 +162,7 @@ model2 <- brm(
     save_pars = save_pars(all = TRUE),
     control = list(adapt_delta = 0.99)
 )
-bf32 <- log(bayes_factor(model2, model)$bf, 10) # 1.2e+5 in favour of 1
+bf32 <- log(bayes_factor(model2, model)$bf, 10)
 
 model2 <- brm(
     Percussive ~ 0 + Intercept + Flat * envelope_1,
@@ -77,38 +177,20 @@ model2 <- brm(
     cores = 10,
     save_pars = save_pars(all = TRUE)
 )
-bf33 <- log(bayes_factor(model2, model)$bf, 10) # 1.2e+24 in favour of 1
+bf33 <- log(bayes_factor(model2, model)$bf, 10)
+model <- model3
 ```
 
 ```{r}
-# Bayes factors for RE comparisons
+# Fixed effects
 
-bf3adf <- data.frame(
-    model = factor(c(2, 3, 4)),
-    bflog = c(bf31, bf32, bf33),
-    select = factor(c(1,0,0)),
-    stage = "(bold(I))~Random~Effects"
-)
-
-ggplot(bf3adf, aes(model, bflog, fill = select)) +
-    coord_cartesian(ylim = c(-6,6)) +
-    geom_col(color = "black") +
-    theme_classic() +
-    scale_fill_manual("Select", values = c("#ab2727", "#4f852c")) +
-    labs(x = expression(Model), y = expression(log[10](italic(BF)))) +
-    theme(legend.position = "none") +
-    geom_hline(yintercept = 0, linetype = 1)
-ggsave("bf3r.svg", width = 6, height = 4)
-```
-
-```{r}
 priors2 <- c(
     prior(cauchy(0,2), class = "b", coef = "Intercept"),
     prior(cauchy(1,1), class = "b", coef = "Flat"),
     prior(cauchy(0,1), class = "b", coef = "envelope_1perc")
 )
 
-model2 <- brm(
+model2 <- brm( # THE BEST
     Percussive ~ 0 + Intercept + Flat + envelope_1 + (1|Participant),
     data = envelopes_b,
     seed = 1,
@@ -121,8 +203,8 @@ model2 <- brm(
     cores = 10,
     save_pars = save_pars(all = TRUE)
 )
-bf34 <- log(bayes_factor(model2, model)$bf, 10) # 5.33 in favour of 2
-# model <- model2
+bf34 <- log(bayes_factor(model2, model)$bf, 10)
+model3 <- model2
 
 priors3 <- c(
     prior(cauchy(0,2), class = "b", coef = "Intercept"),
@@ -143,7 +225,7 @@ model2 <- brm(
     cores = 10,
     save_pars = save_pars(all = TRUE)
 )
-bf35 <- log(bayes_factor(model2, model)$bf, 10) # 4.04 in favour of 1
+bf35 <- log(bayes_factor(model2, model)$bf, 10)
 
 priors4 <- c(
     prior(cauchy(0,2), class = "b", coef = "Intercept"),
@@ -163,31 +245,13 @@ model2 <- brm(
     cores = 10,
     save_pars = save_pars(all = TRUE)
 )
-bf36 <- log(bayes_factor(model2, model)$bf, 10) # 26.4 in favour of 1
+bf36 <- log(bayes_factor(model2, model)$bf, 10)
+model <- model3
 ```
 
 ```{r}
-# Bayes factors for FE comparisons
+# Intercept and slope
 
-bf3bdf <- data.frame(
-    model = factor(c(2, 3, 4)),
-    bflog = c(bf34, bf35, bf36),
-    select = factor(c(1,0,0)),
-    stage = "(bold(II))~Fixed~Effects"
-)
-
-ggplot(bf3bdf, aes(model, bflog, fill = select)) +
-    ylim(-6,6) +
-    geom_col(color = "black") +
-    theme_classic() +
-    scale_fill_manual("Select", values = c("#ab2727", "#4f852c")) +
-    labs(x = expression(Model), y = expression(log[10](italic(BF)))) +
-    theme(legend.position = "none") +
-    geom_hline(yintercept = 0, linetype = 1)
-ggsave("bf3f.svg", width = 6, height = 4)
-```
-
-```{r}
 priors5 <- c(
     prior(constant(0), class = "b", coef = "Intercept"),
     prior(cauchy(1,1), class = "b", coef = "Flat"),
@@ -229,7 +293,6 @@ model2 <- brm( # THE BEST
     save_pars = save_pars(all = TRUE)
 )
 bf38 <- log(bayes_factor(model2, model)$bf, 10)
-# model <- model2
 
 priors7 <- c(
     prior(constant(0), class = "b", coef = "Intercept"),
@@ -253,45 +316,7 @@ model2 <- brm(
 bf39 <- log(bayes_factor(model2, model)$bf, 10)
 ```
 
-```{r}
-# Bayes factors for FE comparisons
-
-bf3cdf <- data.frame(
-    model = factor(c(2, 3, 4)),
-    bflog = c(bf37, bf38, bf39),
-    select = factor(c(0,1,0)),
-    stage = "(bold(III))~Intercept/Slope"
-)
-
-ggplot(bf3cdf, aes(model, bflog, fill = select)) +
-    ylim(-6,6) +
-    geom_col(color = "black") +
-    theme_classic() +
-    scale_fill_manual("Select", values = c("#ab2727", "#4f852c")) +
-    labs(x = expression(Model), y = expression(log[10](italic(BF)))) +
-    theme(legend.position = "none") +
-    geom_hline(yintercept = 0, linetype = 1)
-ggsave("bf3is.svg", width = 6, height = 4)
-```
-
-```{r}
-# All together BF
-
-bfall3 <- rbind(bf3adf, bf3bdf, bf3cdf)
-
-fig3pan1 <- bfall3 |>  
-    ggplot(aes(bflog, factor(model, level = sort(levels(model), decreasing = T)), color = select)) +
-    theme_classic() +
-    coord_cartesian(xlim = c(-6,6)) +
-    scale_color_manual("Selected", values = c("#ab2727", "#4f852c"), labels = c("No", "Yes")) +
-    geom_segment(aes(xend = 0, yend = factor(model, level = sort(levels(model), decreasing = T)))) +
-    geom_vline(xintercept = 0) +
-    geom_point(pch = 16, size = 3) +
-    labs(x = expression(log[10](italic(BF))), y = expression(Model), title = expression((bold(A))~Combined~Model~Comparisons)) +
-    facet_wrap(~stage, ncol = 1, nrow = 3, labeller = label_parsed) +
-    theme(legend.position = "bottom")
-ggsave("bfall3.svg", width = 5, height = 5)
-```
+# Final model
 
 ```{r}
 # FINAL MODEL 3
@@ -317,109 +342,7 @@ final_model3 <- brm(
 ```
 
 ```{r}
-# priors4 <- c(
-#     prior(cauchy(0,2), class = "b", coef = "Intercept"),
-#     prior(cauchy(1,1), class = "b", coef = "Flat")
-# )
-
-# model3 <- brm(
-#     Percussive ~ 0 + Intercept + Flat + (1|Participant),
-#     data = envelopes_b,
-#     seed = 1,
-#     family = gaussian(),
-#     prior = priors4,
-#     iter = 20000,
-#     warmup = 10000,
-#     thin = 1,
-#     chains = 10,
-#     cores = 10,
-#     save_pars = save_pars(all = TRUE)
-# )
-
-# priors8 <- c(
-#     prior(constant(0), class = "b", coef = "Intercept"),
-#     prior(cauchy(1,1), class = "b", coef = "Flat")
-# )
-
-# model4 <- brm(
-#     Percussive ~ 0 + Intercept + Flat + (1|Participant),
-#     data = envelopes_b,
-#     seed = 1,
-#     family = gaussian(),
-#     prior = priors8,
-#     iter = 20000,
-#     warmup = 10000,
-#     thin = 1,
-#     chains = 10,
-#     cores = 10,
-#     save_pars = save_pars(all = TRUE)
-# )
-# bf3a <- log(bayes_factor(model4, model3)$bf, 10)
-
-# priors9 <- c(
-#     prior(cauchy(0,2), class = "b", coef = "Intercept"),
-#     prior(constant(1), class = "b", coef = "Flat")
-# )
-
-# model4 <- brm( # THE BEST
-#     Percussive ~ 0 + Intercept + Flat + (1|Participant),
-#     data = envelopes_b,
-#     seed = 1,
-#     family = gaussian(),
-#     prior = priors9,
-#     iter = 20000,
-#     warmup = 10000,
-#     thin = 1,
-#     chains = 10,
-#     cores = 10,
-#     save_pars = save_pars(all = TRUE)
-# )
-# bf3b <- log(bayes_factor(model4, model3)$bf, 10)
-# # model <- model2
-
-# priors10 <- c(
-#     prior(constant(0), class = "b", coef = "Intercept"),
-#     prior(constant(1), class = "b", coef = "Flat")
-# )
-
-# model4 <- brm(
-#     Percussive ~ 0 + Intercept + Flat + (1|Participant),
-#     data = envelopes_b,
-#     seed = 1,
-#     family = gaussian(),
-#     prior = priors10,
-#     iter = 20000,
-#     warmup = 10000,
-#     thin = 1,
-#     chains = 10,
-#     cores = 10,
-#     save_pars = save_pars(all = TRUE)
-# )
-# bf3c <- log(bayes_factor(model4, model3)$bf, 10)
-```
-
-```{r}
-# Bayes factors for FE comparisons
-
-# bf4df <- data.frame(
-#     model = factor(c(2, 3, 4)),
-#     bflog = c(bf3a, bf3b, bf3c),
-#     select = factor(c(0,1,0))
-# )
-
-# ggplot(bf4df, aes(model, bflog, fill = select)) +
-#     ylim(-6,6) +
-#     geom_col(color = "black") +
-#     theme_classic() +
-#     scale_fill_manual("Select", values = c("#ab2727", "#4f852c")) +
-#     labs(x = expression(Model), y = expression(log[10](italic(BF)))) +
-#     theme(legend.position = "none") +
-#     geom_hline(yintercept = 0, linetype = 1)
-# ggsave("bf4.svg", width = 6, height = 4)
-```
-
-```{r}
-# FINAL MODEL 4
+# FINAL MODEL 4 (no standard envelope)
 priors9 <- c(
     prior(cauchy(0,2), class = "b", coef = "Intercept"),
     prior(constant(1), class = "b", coef = "Flat")
@@ -440,14 +363,52 @@ final_model4 <- brm(
 )
 ```
 
+# Model comparison figure (Combined)
+
+```{r}
+# Bayes factors for RE comparisons
+bf3adf <- data.frame(
+    model = factor(c(2, 3, 4)),
+    bflog = c(bf31, bf32, bf33),
+    select = factor(c(1,0,0)),
+    stage = "(bold(I))~Random~Effects"
+)
+# Bayes factors for FE comparisons
+bf3bdf <- data.frame(
+    model = factor(c(2, 3, 4)),
+    bflog = c(bf34, bf35, bf36),
+    select = factor(c(1,0,0)),
+    stage = "(bold(II))~Fixed~Effects"
+)
+# Bayes factors for IS comparisons
+bf3cdf <- data.frame(
+    model = factor(c(2, 3, 4)),
+    bflog = c(bf37, bf38, bf39),
+    select = factor(c(0,1,0)),
+    stage = "(bold(III))~Intercept/Slope"
+)
+# All together BF
+bfall3 <- rbind(bf3adf, bf3bdf, bf3cdf)
+
+fig3pan1 <- bfall3 |>  
+    ggplot(aes(bflog, factor(model, level = sort(levels(model), decreasing = T)), color = select)) +
+    theme_classic() +
+    coord_cartesian(xlim = c(-6,6)) +
+    scale_color_manual("Selected", values = c("#ab2727", "#4f852c"), labels = c("No", "Yes")) +
+    geom_segment(aes(xend = 0, yend = factor(model, level = sort(levels(model), decreasing = T)))) +
+    geom_vline(xintercept = 0) +
+    geom_point(pch = 16, size = 3) +
+    labs(x = expression(log[10](italic(BF))), y = expression(Model), title = expression((bold(A))~Combined~Model~Comparisons)) +
+    facet_wrap(~stage, ncol = 1, nrow = 3, labeller = label_parsed) +
+    theme(legend.position = "bottom")
+fig3pan1
+# ggsave("bfall3.svg", width = 5, height = 5)
+```
+
+# Model 3 regression figure
+
 ```{r}
 draws3 <- as_draws_df(final_model3)[,1:3]
-# lines1 <- data.frame(
-#     flatint = draws1$b_envelope_1flat,
-#     flatslope = draws1$b_Flat,
-#     percint = draws1$b_envelope_1perc,
-#     percslope = draws1$b_Flat + draws1$`b_Flat:envelope_1perc`
-# )
 set.seed(1)
 draws3 <- draws3[sample(1:100000, 1000, replace = TRUE),]
 lines3 <- data.frame(
@@ -455,12 +416,6 @@ lines3 <- data.frame(
     slope = c(draws3$b_Flat, draws3$b_Flat),
     env = rep(c("flat","perc"), each = nrow(draws3))
 )
-# cf1 <- summary(model)$fixed[,3:4]
-# cf1$env <- rep(c("flat","perc"), each = 2)
-# cf1[3,1:2] <- sqrt(cf1[3,1:2]^2 + cf1[1,1:2])
-# cf1[4,1:2] <- cf1[4,1:2] + cf1[2,1:2]
-
-
 main3 <- summary(final_model3)$fixed[,1]
 maindf <- data.frame(
     int = c(main3[1], main3[1] + main3[3]),
@@ -469,64 +424,31 @@ maindf <- data.frame(
 )
 
 fig3pan2 <- ggplot() +
-    # lims(x = c(-80, 0), y = c(-80, 0)) +
     scale_y_continuous(expand = c(0,0), lim = c(-60, -20)) +
     scale_x_continuous(expand = c(0,0), lim = c(-60, -20)) +
     theme_classic() +
     geom_abline(data = maindf, aes(intercept = int, slope = slope, color = env)) +
     geom_abline(data = lines3, aes(intercept = int, slope = slope, color = env), alpha = 0.01) +
     scale_color_manual("Standard Envelope", labels = c("Flat", "Percussive"), values = c("darkgreen", "#5400ff")) +
-    # geom_polygon(
-    #     data = data.frame(
-    #         x = c(-60, -60, -52.5, -52.5),
-    #         y = c(-60, -20, -20, -60)
-    #     ),
-    #     aes(x = x, y = y),
-    #     fill = "white",
-    #     alpha = 0.55
-    # ) +
-    # geom_polygon(
-    #     data = data.frame(
-    #         x = c(-22.5, -22.5, -20, -20),
-    #         y = c(-60, -20, -20, -60)
-    #     ),
-    #     aes(x = x, y = y),
-    #     fill = "white",
-    #     alpha = 0.55
-    # ) +
     labs(x = "Flat (dB)", y = "Percussive (dB)", title = expression((bold(B))~"Model including Standard envelope")) +
     annotate("text", x = -35, y = -57.5, label = "R^2 == 0.98", parse = TRUE, size = 4, hjust = "left") +
     annotate("label", x = -35, y = -52.5, label = "italic(y) == italic(x) - 0.98", parse = TRUE, size = 4, hjust = "left", fill = "darkgreen", alpha = 0.5) +
     annotate("label", x = -35, y = -55, label = "italic(y) == italic(x) - 0.4", parse = TRUE, size = 4, hjust = "left", fill = "#5400ff", alpha = 0.5) +
     theme(legend.position = "bottom")
-    # ggsave("reg1.pdf", width = 6, height = 5)
+fig3pan2
+# ggsave("reg1.pdf", width = 6, height = 5)
 ```
+
+# Model 4 regression figure
 
 ```{r}
 draws4 <- as_draws_df(final_model4)[,1]
-# lines1 <- data.frame(
-#     flatint = draws1$b_envelope_1flat,
-#     flatslope = draws1$b_Flat,
-#     percint = draws1$b_envelope_1perc,
-#     percslope = draws1$b_Flat + draws1$`b_Flat:envelope_1perc`
-# )
 set.seed(1)
 draws4 <- draws4[sample(1:100000, 1000, replace = TRUE),]
 lines4 <- data.frame(
     int = draws4$b_Intercept
 )
-# cf1 <- summary(model)$fixed[,3:4]
-# cf1$env <- rep(c("flat","perc"), each = 2)
-# cf1[3,1:2] <- sqrt(cf1[3,1:2]^2 + cf1[1,1:2])
-# cf1[4,1:2] <- cf1[4,1:2] + cf1[2,1:2]
-
-
 main4 <- summary(final_model4)$fixed[1,1]
-# maindf <- data.frame(
-#     int = c(main1[2], main1[3]),
-#     slope = c(main1[1], main1[1] + main1[4]),
-#     env = c("flat", "perc")
-# )
 
 fig3pan3 <- ggplot() +
     # lims(x = c(-80, 0), y = c(-80, 0)) +
@@ -535,36 +457,20 @@ fig3pan3 <- ggplot() +
     theme_classic() +
     geom_abline(intercept = main4, slope = 1) +
     geom_abline(data = lines4, aes(intercept = int, slope = 1), alpha = 0.01) +
-    # geom_polygon(
-    #     data = data.frame(
-    #         x = c(-60, -60, -52.5, -52.5),
-    #         y = c(-60, -20, -20, -60)
-    #     ),
-    #     aes(x = x, y = y),
-    #     fill = "white",
-    #     alpha = 0.55
-    # ) +
-    # geom_polygon(
-    #     data = data.frame(
-    #         x = c(-22.5, -22.5, -20, -20),
-    #         y = c(-60, -20, -20, -60)
-    #     ),
-    #     aes(x = x, y = y),
-    #     fill = "white",
-    #     alpha = 0.55
-    # ) +
     labs(x = "Flat (dB)", y = "Percussive (dB)", title = expression((bold(C))~"Model excluding Standard envelope")) +
     annotate("text", x = -35, y = -58, label = "italic(R^2) == 0.98", parse = TRUE, size = 4, hjust = "left") +
     annotate("text", x = -35, y = -55, label = "italic(y == x - 0.7)", parse = TRUE, size = 4, hjust = "left")
-    # ggsave("reg2.pdf", width = 5, height = 5)
+fig3pan3
+# ggsave("reg2.pdf", width = 5, height = 5)
 ```
 
 ```{r}
+# Combine figures
 fig3pan23 <- reg3a + reg3b + plot_layout(axis_titles = "collect")
 
 fig3pan1 + fig3pan2 + fig3pan3 + plot_layout(axis_titles = "collect")
 
-ggsave("fig3.pdf", width = 14, height = 6)
+# ggsave("fig3.pdf", width = 14, height = 6)
 ```
 
 

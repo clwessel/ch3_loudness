@@ -9,7 +9,10 @@ execute:
   include: false
 ---
 
+# Preamble
+
 ```{r}
+# Libraries
 library(dplyr)
 library(ggplot2)
 library(readr)
@@ -17,11 +20,31 @@ library(tidyr)
 library(brms)
 library(patchwork)
 library(ggpubr)
-data1 <- read_csv("data 6/full_data.csv")
-reversals <- 4
 ```
 
 ```{r}
+# Relative working directory
+active_wd <- function(x, output = FALSE) {
+    rdir <- dirname(rstudioapi::getActiveDocumentContext()$path)
+    rdir <- sub("[^/]*$", "", rdir)
+    rdir <- paste0(rdir, x)
+    setwd(rdir)
+    if (output == TRUE) {
+        return(getwd())
+    }
+}
+active_wd("data")
+# Load in data
+data1 <- read_csv("data/combined_data.csv")
+data1 <- data1[data1$exp == 1,]
+reversals <- 4
+```
+
+# Data prep
+
+```{r}
+# Data prep for analysis
+
 # Select final 4 reversals in each staircase for each Participant
 last_revs <- data.frame()
 for (i in unique(data1$Participant)) {
@@ -42,9 +65,7 @@ for (i in unique(data1$Participant)) {
         }
     }
 }
-```
 
-```{r}
 # Categorise each reversal
 k <- 1
 for (i in 1:nrow(last_revs)) {
@@ -52,18 +73,14 @@ for (i in 1:nrow(last_revs)) {
     last_revs$trial_num[i] <- k
     k <- k + 1
 }
-```
 
-```{r}
 # Group and condense response/reversal data
 revs <- last_revs %>%
     group_by(Participant, start_id, direction, envelope_1, type, repetition, trial_num) %>%
     summarise("Level" = mean(second - first)) %>%
     mutate("trial_num" = as.integer(trial_num), "start_id" = factor(start_id)) %>%
     arrange(Participant, start_id, direction, envelope_1, type, repetition, trial_num)
-```
 
-```{r}
 # Calculate PSE for each standard and envelope for each participant (and Z scores)
 pse <- revs %>%
     group_by(Participant, start_id, envelope_1, type, repetition) %>%
@@ -79,15 +96,25 @@ for (i in 1:length(unique(pse$envelope_1))) {
         pse$standard[pse$envelope_1 == unique(pse$envelope_1)[i] & pse$start_id == j] <- data1$first[data1$envelope_1 == unique(pse$envelope_1)[i] & data1$start_id == j]
     }
 }
-pse_new <- pse[rep(seq_len(nrow(pse)), each = 2), ]
-for (i in 1:length(pse_new$Participant)) {
-    if ((i %% 2) == 0) {
-        pse_new$PSEtotal[i] <- pse_new$PSEtotal[i] - pse_new$PSE[i]
-    }
+
+envelopes1 <- data.frame("Participant" = pse$Participant, "start_id" = pse$start_id, "envelope_1" = pse$envelope_1, "type" = pse$type, "repetition" = pse$repetition, "Flat" = 0, "Percussive" = 0)
+
+for (i in 1:length(pse$Participant)) {
+    envelopes1$Flat[i] <- ifelse(pse$envelope_1[i] == "flat", pse$standard[i], pse$PSEtotal[i])
 }
+for (i in 1:length(pse$Participant)) {
+    envelopes1$Percussive[i] <- ifelse(pse$envelope_1[i] == "perc", pse$standard[i], pse$PSEtotal[i])
+}
+envelopes1$delta <- envelopes1$Percussive - envelopes1$Flat
+envelopes1$Participant <- factor(envelopes1$Participant)
+envelopes1$start_id <- factor(envelopes1$start_id)
+envelopes1$envelope_1 <- factor(envelopes1$envelope_1)
 ```
 
+# Staircase figure
+
 ```{r}
+# Prep for staircase figures
 discrep1 <- revs %>%
     group_by(Participant, start_id, envelope_1, type, repetition, direction) %>%
     summarise("PSE" = mean(Level)) %>%
@@ -96,9 +123,7 @@ discrep1 <- revs %>%
     mutate(discrepency = abs(Above - Below))
 discrep1$z <- (sqrt(discrep1$discrepency) - mean(sqrt(discrep1$discrepency))) / sd(sqrt(discrep1$discrepency))
 exclude_d <- unique(discrep1$Participant[discrep1$z > 2])
-```
 
-```{r}
 ycoords <- revs %>%
     group_by(Participant, start_id, envelope_1, type, repetition, direction) %>%
     summarise("PSE" = mean(Level)) %>%
@@ -119,9 +144,7 @@ for (i in 1:length(unique(pse$envelope_1))) {
         coords$Y[coords$envelope_1 == unique(pse$envelope_1)[i] & coords$start_id == j] <- data1$first[data1$envelope_1 == unique(coords$envelope_1)[i] & data1$start_id == j] + coords$Y[coords$envelope_1 == unique(coords$envelope_1)[i] & coords$start_id == j]
     }
 }
-```
 
-```{r}
 minmax <- c()
 for (i in unique(coords$Participant)) {
     for (j in unique(coords$start_id)) {
@@ -144,32 +167,7 @@ for (i in unique(coords$Participant)) {
 ```
 
 ```{r}
-envelopes1 <- data.frame("Participant" = pse$Participant, "start_id" = pse$start_id, "envelope_1" = pse$envelope_1, "type" = pse$type, "repetition" = pse$repetition, "Flat" = 0, "Percussive" = 0)
-
-for (i in 1:length(pse$Participant)) {
-    envelopes1$Flat[i] <- ifelse(pse$envelope_1[i] == "flat", pse$standard[i], pse$PSEtotal[i])
-}
-for (i in 1:length(pse$Participant)) {
-    envelopes1$Percussive[i] <- ifelse(pse$envelope_1[i] == "perc", pse$standard[i], pse$PSEtotal[i])
-}
-envelopes1$delta <- envelopes1$Percussive - envelopes1$Flat
-envelopes1$Participant <- factor(envelopes1$Participant)
-envelopes1$start_id <- factor(envelopes1$start_id)
-envelopes1$envelope_1 <- factor(envelopes1$envelope_1)
-# mergedf <- data.frame(
-#     start_id = unique(data1$start_id),
-#     standard = unique(data1$first)
-# )
-# envelopes1 <- merge(envelopes1, mergedf, by = "start_id", sort = FALSE)
-# envelopes1 <- merge(envelopes1, order, by = c("Participant", "start_id", "envelope_1"), sort = FALSE)
-# envelopes1 <- envelopes1[sort(envelopes1$Participant, index.return = TRUE)$ix,]
-# envelopes1$z <- (envelopes1$delta - mean(envelopes1$delta)) / sd(envelopes1$delta)
-# exclude_e <- unique(envelopes1$Participant[envelopes1$z < -2 | envelopes1$z > 2])
-# exclude <- c(exclude_e, exclude_d[!exclude_d %in% exclude_e])
-```
-
-```{r}
-# pse$PSEtotal <- 1200 * (log(pse$wf + 1) / log(2))
+# Create staircase figures for each participant
 u <- 1
 for (i in unique(data1$Participant)) {
     for (j in unique(data1$start_id)) {
@@ -252,7 +250,11 @@ for (i in unique(data1$Participant)) {
 }
 ```
 
+# Model selection
+
 ```{r}
+# Random effects
+
 priors <- c(
     prior(cauchy(0,2), class = "b", coef = "Intercept"),
     prior(cauchy(1,1), class = "b", coef = "Flat"),
@@ -289,8 +291,8 @@ model2 <- brm( # THE BEST
     save_pars = save_pars(all = TRUE)
 )
 
-bf1 <- log(bayes_factor(model2, model)$bf, 10) # 460.16 in favour of 2
-# model <- model2
+bf1 <- log(bayes_factor(model2, model)$bf, 10)
+model3 <- model2
 
 model2 <- brm(
     Percussive ~ 0 + Intercept + Flat * envelope_1 + (0 + Flat|Participant),
@@ -306,7 +308,7 @@ model2 <- brm(
     save_pars = save_pars(all = TRUE)
 )
 
-bf2 <- log(bayes_factor(model2, model)$bf, 10) # 121.49 in favour of 1
+bf2 <- log(bayes_factor(model2, model)$bf, 10)
 
 model2 <- brm(
     Percussive ~ 0 + Intercept + Flat * envelope_1,
@@ -322,33 +324,13 @@ model2 <- brm(
     save_pars = save_pars(all = TRUE)
 )
 
-bf3 <- log(bayes_factor(model2, model)$bf, 10) # 1.52e+5 in favour of 1
+bf3 <- log(bayes_factor(model2, model)$bf, 10)
+model <- model3
 ```
 
 ```{r}
-# Bayes factors for RE comparisons
+# Fixed effects
 
-bfadf <- data.frame(
-    model = factor(c(2, 3, 4)),
-    bflog = c(bf1, bf2, bf3),
-    select = factor(c(1,0,0)),
-    stage = "(bold(I))~Random~effects"
-)
-
-ggplot(bfadf, aes(model, bflog, fill = select)) +
-    ylim(-6,6) +
-    geom_col(color = "black") +
-    theme_classic() +
-    scale_fill_manual("Select", values = c("#ab2727", "#4f852c")) +
-    labs(x = expression(Model), y = expression(log[10](italic(BF)))) +
-    theme(legend.position = "none") +
-    geom_hline(yintercept = 0, linetype = 1)
-ggsave("bf1r.svg", width = 6, height = 4)
-```
-
-
-```{r}
-# IV selection
 priors2 <- c(
     prior(cauchy(0,2), class = "b", coef = "Intercept"),
     prior(cauchy(1,1), class = "b", coef = "Flat"),
@@ -367,7 +349,7 @@ model2 <- brm(
     cores = 10,
     save_pars = save_pars(all = TRUE)
 )
-bf4 <- log(bayes_factor(model2, model)$bf, 10) # 15.39 in favour of 1
+bf4 <- log(bayes_factor(model2, model)$bf, 10)
 
 priors3 <- c(
     prior(cauchy(0,2), class = "b", coef = "Intercept"),
@@ -410,27 +392,8 @@ bf6 <- log(bayes_factor(model2, model)$bf, 10) # 608.34 in favour of 1
 ```
 
 ```{r}
-# Bayes factors for FE comparisons
+# Intercept and slope
 
-bfbdf <- data.frame(
-    model = factor(c(2, 3, 4)),
-    bflog = c(bf4, bf5, bf6),
-    select = factor(c(0,0,0)),
-    stage = "(bold(II))~Fixed~effects"
-)
-
-ggplot(bfbdf, aes(model, bflog, fill = select)) +
-    ylim(-6,6) +
-    geom_col(color = "black") +
-    theme_classic() +
-    scale_fill_manual("Select", values = c("#ab2727", "#4f852c")) +
-    labs(x = expression(Model), y = expression(log[10](italic(BF)))) +
-    theme(legend.position = "none") +
-    geom_hline(yintercept = 0, linetype = 1)
-ggsave("bf1f.svg", width = 6, height = 4)
-```
-
-```{r}
 priors5 <- c(
     prior(constant(0), class = "b", coef = "Intercept"),
     prior(cauchy(1,1), class = "b", coef = "Flat"),
@@ -452,7 +415,7 @@ model2 <- brm(
     save_pars = save_pars(all = TRUE)
 )
 bf7 <- log(bayes_factor(model2, model)$bf, 10) # 3.58
-# model <- model2
+final_model1 <- model2
 
 priors6 <- c(
     prior(cauchy(0,2), class = "b", coef = "Intercept"),
@@ -499,45 +462,7 @@ model2 <- brm(
 bf9 <- log(bayes_factor(model2, model)$bf, 10)
 ```
 
-```{r}
-# Bayes factors for RE comparisons
-
-bfcdf <- data.frame(
-    model = factor(c(2, 3, 4)),
-    bflog = c(bf7, bf8, bf9),
-    select = factor(c(1, 0, 0)),
-    stage = "(bold(III))~Intercept/Slope"
-)
-
-ggplot(bfcdf, aes(model, bflog, fill = select)) +
-    ylim(-6,6) +
-    geom_col(color = "black") +
-    theme_classic() +
-    scale_fill_manual("Select", values = c("#ab2727", "#4f852c")) +
-    labs(x = expression(Model), y = expression(log[10](italic(BF)))) +
-    theme(legend.position = "none") +
-    geom_hline(yintercept = 0, linetype = 1)
-ggsave("bf1is.svg", width = 6, height = 4)
-```
-
-```{r}
-# All together BF
-
-bfall1 <- rbind(bfadf, bfbdf, bfcdf)
-
-fig1pan1 <- bfall1 |>  
-    ggplot(aes(bflog, factor(model, level = sort(levels(model), decreasing = T)), color = select)) +
-    theme_classic() +
-    xlim(-6,6) +
-    scale_color_manual("Selected", values = c("#ab2727", "#4f852c"), labels = c("No","Yes")) +
-    geom_point(pch = 16, size = 3) +
-    geom_segment(aes(xend = 0, yend = factor(model, level = sort(levels(model), decreasing = T)))) +
-    geom_vline(xintercept = 0) +
-    labs(x = expression(log[10](italic(BF))), y = expression(Model), title = expression((bold(A))~Experiment~1)) +
-    facet_wrap(~stage, ncol = 1, nrow = 3, labeller = label_parsed) +
-    theme(legend.position = "bottom")
-ggsave("bfall1.svg", width = 5, height = 5)
-```
+# Final model
 
 ```{r}
 # FINAL MODEL 1
@@ -564,14 +489,52 @@ final_model1 <- brm(
 )
 ```
 
+# Model comparison figure (Exp1)
+
+```{r}
+# Bayes factors for RE comparisons
+bfadf <- data.frame(
+    model = factor(c(2, 3, 4)),
+    bflog = c(bf1, bf2, bf3),
+    select = factor(c(1,0,0)),
+    stage = "(bold(I))~Random~effects"
+)
+# Bayes factors for FE comparisons
+bfbdf <- data.frame(
+    model = factor(c(2, 3, 4)),
+    bflog = c(bf4, bf5, bf6),
+    select = factor(c(0,0,0)),
+    stage = "(bold(II))~Fixed~effects"
+)
+# Bayes factors for IS comparisons
+bfcdf <- data.frame(
+    model = factor(c(2, 3, 4)),
+    bflog = c(bf7, bf8, bf9),
+    select = factor(c(1, 0, 0)),
+    stage = "(bold(III))~Intercept/Slope"
+)
+# All together BF
+bfall1 <- rbind(bfadf, bfbdf, bfcdf)
+
+fig1pan1 <- bfall1 |>  
+    ggplot(aes(bflog, factor(model, level = sort(levels(model), decreasing = T)), color = select)) +
+    theme_classic() +
+    xlim(-6,6) +
+    scale_color_manual("Selected", values = c("#ab2727", "#4f852c"), labels = c("No","Yes")) +
+    geom_point(pch = 16, size = 3) +
+    geom_segment(aes(xend = 0, yend = factor(model, level = sort(levels(model), decreasing = T)))) +
+    geom_vline(xintercept = 0) +
+    labs(x = expression(log[10](italic(BF))), y = expression(Model), title = expression((bold(A))~Experiment~1)) +
+    facet_wrap(~stage, ncol = 1, nrow = 3, labeller = label_parsed) +
+    theme(legend.position = "bottom")
+fig1pan1
+# ggsave("bfall1.svg", width = 5, height = 5)
+```
+
+# Regression figure (Exp 1)
+
 ```{r}
 draws1 <- as_draws_df(final_model1)[,1:4]
-# lines1 <- data.frame(
-#     flatint = draws1$b_envelope_1flat,
-#     flatslope = draws1$b_Flat,
-#     percint = draws1$b_envelope_1perc,
-#     percslope = draws1$b_Flat + draws1$`b_Flat:envelope_1perc`
-# )
 set.seed(1)
 draws1 <- draws1[sample(1:100000, 1000, replace = TRUE),]
 lines1 <- data.frame(
@@ -579,12 +542,6 @@ lines1 <- data.frame(
     slope = c(draws1$b_Flat, draws1$b_Flat + draws1$`b_Flat:envelope_1perc`),
     env = rep(c("flat","perc"), each = 1000)
 )
-# cf1 <- summary(model)$fixed[,3:4]
-# cf1$env <- rep(c("flat","perc"), each = 2)
-# cf1[3,1:2] <- sqrt(cf1[3,1:2]^2 + cf1[1,1:2])
-# cf1[4,1:2] <- cf1[4,1:2] + cf1[2,1:2]
-
-
 main1 <- summary(final_model1)$fixed[,1]
 maindf <- data.frame(
     int = c(main1[1], main1[3]),
@@ -628,8 +585,11 @@ reg <- ggplot() +
     annotate("label", x = -35, y = -52.5, label = "italic(y) == 1.03*italic(x)", parse = TRUE, size = 4, hjust = "left", fill = "darkgreen", alpha = 0.5) +
     annotate("label", x = -35, y = -55, label = "italic(y) == 0.97*italic(x) - 1.45", parse = TRUE, size = 4, hjust = "left", fill = "#5400ff", alpha = 0.5) +
     annotate("text", x = -59, y = -21, hjust = "left", label = "(bold(I))~Regression~lines", size = 5, parse = T)
-    # ggsave("reg1.pdf", width = 6, height = 5)
+reg
+# ggsave("reg1.pdf", width = 6, height = 5)
 ```
+
+# Model coefficient errorbars (Exp 1)
 
 ```{r}
 draws1 <- as_draws_df(final_model1)[,1:4]
@@ -639,7 +599,6 @@ lines1 <- data.frame(
     percint = draws1$b_envelope_1perc,
     percslope = draws1$b_Flat + draws1$`b_Flat:envelope_1perc`
 )
-
 errorbars <- summary(final_model1)$fixed
 errorbars[4,1] <- errorbars[4,1] + errorbars[2,1]
 errorbars[4,3] <- quantile(lines1$percslope, 0.025)
@@ -647,15 +606,6 @@ errorbars[4,4] <- quantile(lines1$percslope, 0.975)
 errorbars$coef <- c("Intercept", "Slope", "Intercept", "Slope")
 errorbars$`Standard Envelope` <- rep(c("Flat", "Percussive"), each = 2)
 errorbars$line <- c(0,1,0,1)
-# ggplot(errorbars, aes(env, Estimate)) +
-#     geom_hline(aes(yintercept = line), linetype = 2, alpha = 0.5) +
-#     geom_errorbar(aes(ymin = `l-95% CI`, ymax = `u-95% CI`)) +
-#     geom_label(aes(label = round(Estimate, 2))) +
-#     theme_classic() +
-#     facet_wrap(~coef) +
-#     labs(x = "Coefficient", y = expression(hat(beta)))
-
-
 errorbarsint <- errorbars[errorbars$coef == "Intercept",]
 errorbarsslope <- errorbars[errorbars$coef == "Slope",]
 
@@ -681,246 +631,10 @@ slopeplot1 <- ggplot(errorbarsslope, aes(`Standard Envelope`, Estimate, color = 
     theme(legend.position = "none")
 
 err <- intplot1 + slopeplot1 + plot_layout(axis_titles = "collect")
+err
 
-fig2pan12 <- reg + err
-#  + plot_annotation(title = expression((bold(A))~Experiment~1), theme = theme(plot.title = element_text(hjust = 1/3)))
-ggsave("regerr.svg", width = 10, height = 6)
-ggsave("coef1.pdf", height = 5, width = 7)
+# fig2pan12 <- reg + err
+# fig2pan12
+# ggsave("regerr.svg", width = 10, height = 6)
+# ggsave("coef1.pdf", height = 5, width = 7)
 ```
-
-```{r}
-# ggplot(envelopes1, aes(delta)) +
-#     geom_density() +
-#     theme_classic() +
-#     facet_wrap(vars(envelope_1, start_id), nrow = 2, ncol = 4)
-margflat <- envelopes1 |> 
-    filter(envelope_1 == "flat") |> 
-    group_by(Flat) |> 
-    summarise(
-        m = mean(Percussive),
-        sd = sd(Percussive),
-        n = n()
-    ) |> 
-    mutate(
-        se = sd / sqrt(n)
-    ) |> 
-    mutate(
-        lb = m - se,
-        ub = m + se,
-        env = "flat"
-    ) |> 
-    rename("standard" = "Flat")
-
-margperc <- envelopes1 |> 
-    filter(envelope_1 == "perc") |> 
-    group_by(Percussive) |> 
-    summarise(
-        m = mean(Flat),
-        sd = sd(Flat),
-        n = n()
-    ) |> 
-    mutate(
-        se = sd / sqrt(n)
-    ) |> 
-    mutate(
-        lb = m - se,
-        ub = m + se,
-        env = "perc"
-    ) |> 
-    rename("standard" = "Percussive")
-
-marg <- rbind(margflat, margperc)
-
-ggplot() +
-    scale_x_continuous(expand = c(0,0), lim = c(-60, -20)) +
-    scale_y_continuous(expand = c(0,0), lim = c(-60, -20)) +
-    theme_classic() +
-    # geom_label(data = margflat, aes(x = standard, y = m, color = env, label = n)) +
-    # geom_label(data = margperc, aes(x = m, y = standard, color = env, label = n)) +
-    geom_errorbar(data = margflat, aes(x = standard, ymin = lb, ymax = ub, color = env), width = 1) +
-    geom_point(data = margflat, aes(x = standard, y = m, color = env), pch = 21, fill = "white") +
-    geom_errorbar(data = margperc, aes(y = standard, xmin = lb, xmax = ub, color = env), width = 1) +
-    geom_point(data = margperc, aes(x = m, y = standard, color = env), pch = 21, fill = "white") +
-    labs(x = "Flat (dB)", y = "Percussive (dB)") +
-    scale_color_manual("Standard Envelope", labels = c("Flat", "Percussive"), values = c("red","blue"))
-ggsave("errorbar1.pdf")
-
-```
-
-
-
-
-
-```{r}
-plotdata <- rbind(envelopes1,envelopes1)
-plotdata$group <- plotdata$Participant
-plotdata$group[179:356] <- "Overall"
-
-plotdata |> 
-ggplot(aes(Flat, Percussive)) +
-geom_point(aes(color = envelope_1, shape = envelope_1), alpha = 0.5) +
-geom_smooth(method = "lm", formula = y ~ 1 + x) +
-theme_classic() +
-facet_wrap(~group) +
-stat_regline_equation(aes(label = ..eq.label..), label.x = -40, label.y = -60, size = 3) +
-stat_regline_equation(aes(label = ..rr.label..), label.x = -40, label.y = -65, size = 3) +
-coord_cartesian(xlim = c(-80, 0), ylim = c(-80,0))
-ggsave("regressions.pdf", width = 9, height = 6)
-```
-
-```{r}
-boots <- boot_lme(final_model, R = 1000, cores = 10, seed = 1)
-bootsdf <- data.frame(
-    intercept = boots$t[,1],
-    slope = boots$t[,2]
-)
-
-inthist <- bootsdf |> 
-ggplot(aes(intercept)) +
-geom_histogram(fill = "cornflowerblue", color = "black") +
-theme_classic() +
-theme(
-    axis.text.y = element_blank(),
-    axis.title.y = element_blank(),
-    axis.line.y = element_blank(),
-    axis.ticks.y = element_blank()
-) +
-scale_y_continuous(expand = c(0,0))
-
-slopehist <- bootsdf |> 
-ggplot(aes(slope)) +
-geom_histogram(fill = "cornflowerblue", color = "black") +
-theme_classic() +
-theme(
-    axis.text.y = element_blank(),
-    axis.title.y = element_blank(),
-    axis.line.y = element_blank(),
-    axis.ticks.y = element_blank()
-) +
-scale_y_continuous(expand = c(0,0))
-
-
-reg <- envelopes1 |> 
-ggplot(aes(Flat, Percussive)) +
-geom_point(aes(Flat,Percussive),alpha = 0) +
-geom_abline(data = bootsdf, aes(intercept = intercept, slope = slope), alpha = 0.008) +
-geom_abline(intercept = boots$t0[1], slope = boots$t0[2], color = "cornflowerblue") +
-theme_classic() +
-geom_polygon(
-    data = data.frame(
-        x = c(-100,-60,-60,-100),
-        y = c(-100,-100,10,10)
-    ),
-    aes(x = x, y = y),
-    fill = "white",
-    linetype = 0,
-    alpha = 0.5
-    ) +
-geom_polygon(
-    data = data.frame(
-        x = c(-20,10,10,-20),
-        y = c(-100,-100,10,10)
-    ),
-    aes(x = x, y = y),
-    fill = "white",
-    linetype = 0,
-    alpha = 0.5
-    ) +
-annotate(
-    "text",
-    x = -30,
-    y = -60,
-    label = paste0(
-        "y = ", round(boots$t0[1], 2), " + ", round(boots$t0[2], 2), "x"
-    ),
-    hjust = "left"
-    ) +
-  annotate(
-    "text",
-    x = -30,
-    y = -65,
-    label = paste0(
-        "R2 = ", round(r.squaredGLMM(final_model)[1], 2)
-    ),
-    hjust = "left"
-    ) +
-    coord_cartesian(xlim = c(-80, 0), ylim = c(-80,0))
-
-(inthist / slopehist) | reg
-# ggsave("bootstraps.pdf", width = 9, height = 6)
-```
-
-```{r}
-envelopes1 |> 
-ggplot(aes(factor(standard), delta, fill = factor(envelope_1))) +
-geom_boxplot(color = "black", notch = T) +
-theme_classic() +
-labs(x = "Standard magnitude", y = expression(Delta)) +
-scale_fill_discrete("Standard Envelope", label = c("Flat", "Percussive"))
-# ggsave("boxplot.pdf", width = 9, height = 6)
-
-envelopes1 |> 
-ggplot(aes(factor(envelope_1), delta)) +
-geom_boxplot(color = "black", fill = "cornflowerblue", notch = T) +
-theme_classic()
-```
-
-```{r}
-poles <- c(mean(envelopes1$delta) - 2*sd(envelopes1$delta), mean(envelopes1$delta) + 2*sd(envelopes1$delta))
-envelopes1 |> 
-ggplot(aes(delta)) +
-geom_histogram(color = "black", fill = "cornflowerblue", bins = 30) +
-theme_classic() +
-# geom_vline(xintercept = poles, linetype = 2) +
-facet_wrap(~envelope_1) +
-labs(x = expression(Delta))
-
-discrep1 |> 
-ggplot(aes(discrepency)) +
-geom_histogram(color = "black", fill = "cornflowerblue", bins = 30) +
-theme_classic() +
-geom_vline(xintercept = 24, linetype = 2) +
-labs(x = "Convergence window")
-```
-
-$$
-\lim_{P(H)\to 1} \log_{1-P(h)}(1 - P(H)) = \infty
-$$
-
-$$
-P(H) = (1-P(h))^N
-$$
-
-
-```{r}
-a <- seq(4, 14, length.out = 101)
-b <- seq(0.1, 1.1, length.out = 101)
-x <- c(0.1 ,0.2 ,0.3 ,0.4 ,0.5 ,0.6 ,0.7 ,0.8 ,1 ,1.5 ,2)
-s <- c(0, 0, 1, 2, 4, 6, 8, 9, 9, 10, 10)
-n <- 10
-
-hyp <- expand.grid(x = x, a = a, b = b)
-hyp$s <- s
-
-hyp$p <- with(hyp, ((1/(1 + exp(a*(b-x))))))
-hyp$likelihood <- with(hyp, dbinom(s, n, p))
-hyp <- aggregate(likelihood ~ a + b, data = hyp, FUN = prod)
-
-hyp$post <- hyp$likelihood / sum(hyp$likelihood)
-hyp[hyp$post == max(hyp$post),]
-
-library(ggplot2)
-hyp |> 
-    ggplot(aes(a, b, fill = post)) +
-    geom_raster(interpolate = T) +
-    theme_classic() +
-    scale_fill_gradient2(low = "black", mid = "red", high = "white", midpoint = max(hyp$post)*0.5) +
-    scale_y_continuous(expand = c(0,0)) +
-    scale_x_continuous(expand = c(0,0)) +
-    labs(x = expression(alpha), y = expression(beta), fill = expression(P(alpha,beta~"| D")))
-```
-
-
-
-
-
