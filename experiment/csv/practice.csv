@@ -1,0 +1,9 @@
+﻿ref,tar,cor
+wav/flat_120.wav,wav/perc_80.wav,2
+wav/flat_120.wav,wav/perc_160.wav,1
+wav/flat_180.wav,wav/perc_140.wav,2
+wav/flat_180.wav,wav/perc_220.wav,1
+wav/perc_120.wav,wav/flat_80.wav,2
+wav/perc_120.wav,wav/flat_160.wav,1
+wav/perc_180.wav,wav/flat_140.wav,2
+wav/perc_180.wav,wav/flat_220.wav,1
