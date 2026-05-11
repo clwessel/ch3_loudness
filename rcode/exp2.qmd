@@ -35,7 +35,7 @@ active_wd <- function(x, output = FALSE) {
 }
 active_wd("data")
 # Load in data
-data2 <- read_csv("data/combined_data.csv")
+data2 <- read_csv("combined_data.csv")
 data2 <- data2[data2$exp == 2 & data2$type == "Heterogenous",]
 reversals <- 4
 ```
@@ -647,8 +647,8 @@ fig2pan3 <- ggplot() +
     geom_abline(intercept = 0, slope = main1) +
     geom_abline(data = lines1, aes(intercept = int, slope = 1), alpha = 0.01) +
     labs(x = "Flat (dB)", y = "Percussive (dB)", title = expression((bold(B))~Experiment~2)) +
-    annotate("text", x = -35, y = -55, label = "italic(R^2) == 0.98", parse = TRUE, size = 4, hjust = "left") +
-    annotate("text", x = -35, y = -58, label = "italic(y == x - 2.03)", parse = TRUE, size = 4, hjust = "left")
+    annotate("text", x = -35, y = -58, label = "italic(R^2) == 0.98", parse = TRUE, size = 6, hjust = "left") +
+    annotate("text", x = -35, y = -54, label = "italic(y == x - 2.03)", parse = TRUE, size = 6, hjust = "left")
 fig2pan3
 # ggsave("reg2.pdf", width = 5, height = 5)
 ```

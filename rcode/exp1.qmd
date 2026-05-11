@@ -35,7 +35,7 @@ active_wd <- function(x, output = FALSE) {
 }
 active_wd("data")
 # Load in data
-data1 <- read_csv("data/combined_data.csv")
+data1 <- read_csv("combined_data.csv")
 data1 <- data1[data1$exp == 1,]
 reversals <- 4
 ```
@@ -556,10 +556,7 @@ reg <- ggplot() +
     coord_cartesian(xlim = c(-60,-20), ylim = c(-60,-20)) +
     theme_classic() +
     theme(legend.position = "bottom") +
-    # annotate("ribbon", x = c(-60,-20), ymin = c(-60,-20)*lines1$slopel[1] + lines1$intl[1], ymax = c(-60,-20)*lines1$slopeu[1] + lines1$intu[1], fill = "#abff00", alpha = 0.4) +
-    # annotate("ribbon", x = c(-60,-20), ymin = c(-60,-20)*lines1$slopel[2] + lines1$intl[2], ymax = c(-60,-20)*lines1$slopeu[2] + lines1$intu[2], fill = "#5400ff", alpha = 0.4) +
     geom_abline(data = maindf, aes(intercept = int, slope = slope, color = env)) +
-    # geom_ribbon(data = lines1, aes(x = c(-60,-20), ymin = c(-60,-20)*slopel + intl, ymax = c(-60,-20)*slopeu + intu, color = env)) +
     geom_abline(data = lines1, aes(intercept = int, slope = slope, color = env), alpha = 0.01) +
     scale_color_manual("Standard Envelope", labels = c("Flat", "Percussive"), values = c("darkgreen", "#5400ff")) +
     geom_polygon(
@@ -581,9 +578,9 @@ reg <- ggplot() +
         alpha = 0.55
     ) +
     labs(x = "Flat (dB)", y = "Percussive (dB)", title = expression((bold(A))~Experiment~1)) +
-    annotate("text", x = -35, y = -57.5, label = "R^2 == 0.98", parse = TRUE, size = 4, hjust = "left") +
-    annotate("label", x = -35, y = -52.5, label = "italic(y) == 1.03*italic(x)", parse = TRUE, size = 4, hjust = "left", fill = "darkgreen", alpha = 0.5) +
-    annotate("label", x = -35, y = -55, label = "italic(y) == 0.97*italic(x) - 1.45", parse = TRUE, size = 4, hjust = "left", fill = "#5400ff", alpha = 0.5) +
+    annotate("text", x = -40, y = -58, label = "R^2 == 0.98", parse = TRUE, size = 6, hjust = "left") +
+    annotate("label", x = -40, y = -50, label = "italic(y) == 1.03*italic(x)", parse = TRUE, size = 6, hjust = "left", fill = "darkgreen", alpha = 0.5) +
+    annotate("label", x = -40, y = -54, label = "italic(y) == 0.97*italic(x) - 1.45", parse = TRUE, size = 6, hjust = "left", fill = "#5400ff", alpha = 0.5) +
     annotate("text", x = -59, y = -21, hjust = "left", label = "(bold(I))~Regression~lines", size = 5, parse = T)
 reg
 # ggsave("reg1.pdf", width = 6, height = 5)
@@ -610,21 +607,23 @@ errorbarsint <- errorbars[errorbars$coef == "Intercept",]
 errorbarsslope <- errorbars[errorbars$coef == "Slope",]
 
 intplot1 <- ggplot(errorbarsint, aes(`Standard Envelope`, Estimate, color = `Standard Envelope`)) +
-    scale_y_continuous(expand = c(0,0), lim = c(-3,3)) +
+    scale_y_continuous(expand = c(0,0), lim = c(-9,9)) +
     geom_hline(aes(yintercept = line), linetype = 2, alpha = 0.5) +
     geom_errorbar(aes(ymin = `l-95% CI`, ymax = `u-95% CI`), width = 0.5) +
-    geom_label(aes(label = round(Estimate, 3)), color = "black") +
+    geom_point(pch = 21, fill = "white", size = 4) +
+    # geom_label(aes(label = round(Estimate, 2)), color = "black", size = 2) +
     theme_classic() +
     scale_color_manual("Standard Envelope", labels = c("Flat", "Percussive"), values = c("darkgreen", "#5400ff")) +
     labs(y = expression(hat(beta)~(Intercept))) +
     theme(legend.position = "none") +
-    annotate("text", x = 0.5, y = 2.86, hjust = "left", label = "(bold(II))~Coefficients", size = 5, parse = T)
+    annotate("text", x = 0.5, y = 8.5, hjust = "left", label = "(bold(II))~Coefficients", size = 5, parse = T)
 
 slopeplot1 <- ggplot(errorbarsslope, aes(`Standard Envelope`, Estimate, color = `Standard Envelope`)) +
     geom_hline(aes(yintercept = line), linetype = 2, alpha = 0.5) +
-    scale_y_continuous(position = "right", lim = c(0.9,1.1), expand = c(0,0)) +
+    scale_y_continuous(position = "right", lim = c(0.7,1.3), expand = c(0,0)) +
     geom_errorbar(aes(ymin = `l-95% CI`, ymax = `u-95% CI`), width = 0.5) +
-    geom_label(aes(label = round(Estimate, 3)), color = "black") +
+    geom_point(pch = 21, fill = "white", size = 4) +
+    # geom_label(aes(label = round(Estimate, 2)), color = "black", size = 2) +
     theme_classic() +
     scale_color_manual("Standard Envelope", labels = c("Flat", "Percussive"), values = c("darkgreen", "#5400ff")) +
     labs(y = expression(hat(beta)~(Slope))) +
@@ -633,8 +632,8 @@ slopeplot1 <- ggplot(errorbarsslope, aes(`Standard Envelope`, Estimate, color = 
 err <- intplot1 + slopeplot1 + plot_layout(axis_titles = "collect")
 err
 
-# fig2pan12 <- reg + err
-# fig2pan12
+fig2pan12 <- reg + err
+fig2pan12
 # ggsave("regerr.svg", width = 10, height = 6)
 # ggsave("coef1.pdf", height = 5, width = 7)
 ```
